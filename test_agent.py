@@ -332,6 +332,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _TMP = tempfile.mkdtemp(prefix="agent-test-")
 
 
+def wait_until_up(url, seconds=30):
+    """Waits for an agent we just started to answer /ping (a slow machine can take a while)."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url + "/ping", timeout=2):
+                return True
+        except (urllib.error.URLError, OSError):
+            time.sleep(0.2)
+    return False
+
+
 def agent_script(test_mode=True, **replace):
     """A copy of the agent to run in a subprocess (a file, not `python -c`: the source is longer than
     Windows allows on a command line). test_mode flips TEST_MODE; `replace` swaps constants."""
@@ -524,7 +536,11 @@ def main():
         [sys.executable, agent_script(), "--site", "https://Admin.Example.com/", "--port", str(AGENT_PORT)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    time.sleep(0.5)  # give it a moment to bind
+    if not wait_until_up(AGENT_URL):
+        out = proc.stdout.read1(65536) if proc.poll() is not None else b"(still running)"
+        print("The agent didn't start:", out.decode("utf-8", "replace"))
+        proc.kill()
+        sys.exit(1)
 
     try:
         # 1. /ping
@@ -686,8 +702,8 @@ def main():
         bare = subprocess.Popen([sys.executable, agent_script(), "--port", str(bare_port)],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
-            time.sleep(0.5)
             bare_url = f"http://127.0.0.1:{bare_port}"
+            wait_until_up(bare_url)
             status, data = get_json(f"{bare_url}/ping", headers={})
             check("=== no --site ===\n/ping still answers", status == 200 and data.get("ok") is True)
             status, data = post_json(f"{bare_url}/list", {"machineIp": "127.0.0.1"})
