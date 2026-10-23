@@ -74,6 +74,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_PORT = 8787
@@ -82,8 +83,14 @@ AGENT_NAME = "opendecodesk-machine-agent"
 
 
 def log(msg):
-    """Print a timestamped line to the agent's console so sends/failures are visible in the field."""
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    """Print a timestamped line to the agent's console so sends/failures are visible in the field.
+    Never fails: a console that can't show a character (Windows' code page, a machine's non-ASCII file
+    name) gets it escaped instead of the request dying."""
+    line = f"[{time.strftime('%H:%M:%S')}] {msg}"
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        print(line.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
 
 # The admin site(s) allowed to use this agent, as origins ("https://admin.yourshop.example"), set by
 # configure() from --site / --relay. Any other web page the operator happens to visit can also reach
@@ -894,6 +901,14 @@ def relay_loop(relay_url, token, stop=lambda: False, sleep=time.sleep):
             sleep(wait)
 
 
+class _LoopbackServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer without its start-up lookup of this computer's full DNS name
+    (socket.getfqdn), which can stall for many seconds on some networks. The agent never uses it."""
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def main():
     import argparse
     import os
@@ -925,7 +940,7 @@ def main():
         return
     if not ALLOWED_ORIGINS:
         log("WARNING: " + NO_SITE_MESSAGE)
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = _LoopbackServer(("127.0.0.1", PORT), Handler)
     print(f"Machine agent listening on http://127.0.0.1:{PORT} for {', '.join(sorted(ALLOWED_ORIGINS)) or 'nobody'}"
           "  (Ctrl+C to stop)", flush=True)
     try:
