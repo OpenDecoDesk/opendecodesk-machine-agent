@@ -56,7 +56,12 @@ bytes. That's the whole frame (`header + body + lrc`). See `_recv_frame` in `emb
 | Step    | Direction        | Packet                                                            |
 |---------|------------------|------------------------------------------------------------------|
 | Request | host → broadcast | UDP to `255.255.255.255:23`, payload `FF 04 02 FB` (4 bytes).     |
-| Reply   | machine → host   | UDP to the sender on port `60023`, an ~84-byte packet (below).    |
+| Reply   | machine → host   | UDP back to the port the request came FROM, an ~84-byte packet (below). |
+
+The vendor's app sends from (and listens on) port 60023, but the machines answer whatever port the
+request came from: a scan sent from a random free port gets its replies on that port (checked on a
+`1201plus` and a `1501ultra`, three tries each). So a scanner needn't hold 60023 — which on Windows can
+be taken by the vendor's app or reserved by the system (WinError 10013).
 
 The reply is **not** an `FA 01` frame — it's a flat fixed-layout record:
 
@@ -181,7 +186,7 @@ over port 6000, could change that.
 
 ```
 Envelope:      FA 01 <len16 LE=len(body)+1> <body> <lrc = XOR of all prior bytes>
-Discover req:  UDP → 255.255.255.255:23   payload FF 04 02 FB   (reply on UDP :60023)
+Discover req:  UDP → 255.255.255.255:23   payload FF 04 02 FB   (reply to the request's source port)
 List page:     FA 01 07 00 01 00 CF 21 <page8> 00 <lrc>
 List reply:    FA 01 <len> 01 00 CF 26 <page16> <field16> <JSON chunk> <lrc>
 Register:      FA 01 <len> 01 00 CF 25 00 <name ASCII> <lrc>

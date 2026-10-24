@@ -563,6 +563,25 @@ def main():
         check("firmware parsed correctly", found and found["firmware"] == "v2.3.1")
         stub_machine.stop()
 
+        # 2b. Port 60023 already taken (the vendor's app, or a Windows reservation — WinError 10013 on a
+        #     tester's PC): the scan uses any free port, since the machines answer the port that asked.
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            blocker.bind(("", 60023))
+        except OSError:
+            blocker.close()
+            blocker = None  # already held on this computer: the same situation
+        stub_machine = StubDiscoveryMachine(mac="AA:BB:CC:DD:EE:01", model="SmartStitch S1000", firmware="v2.3.1")
+        try:
+            status, data = get_json(
+                f"{AGENT_URL}/discover?targetPort={stub_machine.port}&windowSeconds=1&broadcastIp=127.0.0.1", timeout=10)
+        finally:
+            stub_machine.stop()
+            if blocker:
+                blocker.close()
+        check("with UDP 60023 taken, the scan still finds the machine (any free port)",
+              status == 200 and [m["mac"] for m in data.get("machines", [])] == ["AA:BB:CC:DD:EE:01"])
+
         # 3. /list — multi-page: 3 files, page 1 returns 2 as a full object, page 2 returns the
         #    3rd as a bare continuation fragment (the real capture's awkward shape).
         files = [
