@@ -45,8 +45,8 @@ at once.
 | `--token` | `ODD_AGENT_TOKEN` | Relay mode: the site's `AGENT_TOKEN`, 32+ characters. Prefer the environment variable. |
 | `--port` | `ODD_AGENT_PORT` | Loopback port; default 8787, which is what the admin site expects. |
 
-Close the machine vendor's own app while the agent is scanning: both listen on the same UDP port for
-the machines' replies.
+The machine vendor's own app can stay open: the agent hears the machines' replies on a port of its own
+(any free one — the machines answer whichever port asked).
 
 ## Run it as a service
 

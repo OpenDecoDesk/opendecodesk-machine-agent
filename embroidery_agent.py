@@ -146,7 +146,10 @@ MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 # ---- Machine discovery (UDP broadcast) --------------------------------------------------
 UDP_BROADCAST_IP = "255.255.255.255"
 UDP_TARGET_PORT = 23      # machine's listening discovery port
-UDP_LISTEN_PORT = 60023   # this computer's listening port for replies
+# The machines answer whatever port the scan is sent FROM, so any free port works (0 = let the system pick).
+# A fixed one (the vendor's app uses 60023) can be held by another program or reserved by Windows (Hyper-V
+# reserves ranges of high ports), which made binding fail with WinError 10013 and the scan never ran.
+UDP_LISTEN_PORT = 0
 DISCOVERY_PAYLOAD = bytes.fromhex("ff 04 02 fb")
 DISCOVERY_WINDOW_SECONDS = 1.5
 
@@ -278,9 +281,9 @@ def discover_machines(target_port=UDP_TARGET_PORT, listen_port=UDP_LISTEN_PORT,
                        window_seconds=DISCOVERY_WINDOW_SECONDS, broadcast_ip=UDP_BROADCAST_IP):
     """Broadcasts the discovery payload on the LAN and collects replies for `window_seconds`.
     Returns a list of {ip, mac, model, firmware} — one per distinct IP that answered. Raises
-    RuntimeError if the discovery socket itself can't be opened (e.g. the port is already in use
-    by another instance of this agent, or by the vendor's own software running at the same time).
-    target_port/listen_port/broadcast_ip default to the real values (23 / 60023 / 255.255.255.255);
+    RuntimeError if the discovery socket itself can't be opened. The replies come back to the port
+    the scan was sent from, which is any free one (see UDP_LISTEN_PORT).
+    target_port/listen_port/broadcast_ip default to the real values (23 / any free / 255.255.255.255);
     overridable only so this can be exercised in tests against a throwaway stub on a high,
     unprivileged port addressed directly (loopback broadcast isn't reliable across platforms)."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -294,7 +297,8 @@ def discover_machines(target_port=UDP_TARGET_PORT, listen_port=UDP_LISTEN_PORT,
     try:
         sock.bind(("", listen_port))
     except OSError as e:
-        raise RuntimeError(f"Could not listen for machine replies on UDP port {listen_port}: {e}")
+        sock.close()
+        raise RuntimeError(f"Could not open a network port to hear the machines' replies: {e}")
 
     sock.settimeout(window_seconds)
     sock.sendto(DISCOVERY_PAYLOAD, (broadcast_ip, target_port))
