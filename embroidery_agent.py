@@ -14,7 +14,7 @@ listing, upload and reading a file back were reverse-engineered from Wireshark c
 vendor's own software talking to a machine (full reference: PROTOCOL.md):
   - Discovery: a UDP broadcast on port 23 with a fixed 4-byte payload; each machine on the LAN
     replies with a packet carrying its MAC (bytes 9:15) and two NUL-terminated strings — firmware
-    at byte 19 and model/name at byte 51.
+    at byte 19 and, at byte 51, the name entered on the machine (returned as "model").
   - Listing: a TCP connection on port 6000; the machine returns one JSON document
     ({"num":N,"files":[…]}) split across framed "pages" (11-byte command frame per page). The
     split falls at arbitrary byte boundaries, so list_machine_dir strips each page's 12-byte prefix
@@ -321,13 +321,14 @@ def discover_machines(target_port=UDP_TARGET_PORT, listen_port=UDP_LISTEN_PORT,
                 continue
             seen_ips.add(ip_str)
 
-            # Real reply layout, confirmed against two different machines (a 1201plus and a
-            # 1501ultra): MAC at bytes 9:15, then a NUL-terminated firmware string starting at
-            # byte 19, then a NUL-terminated model/name string starting at byte 51. Both string
+            # Real reply layout, confirmed against two different machines (a 1201 Plus and a
+            # 1501 Ultra): MAC at bytes 9:15, then a NUL-terminated firmware string starting at
+            # byte 19, then a NUL-terminated string starting at byte 51 — the name entered on the
+            # machine (kept as "model", but not a model number). Both string
             # fields are variable length (firmware prefixes seen so far: "JD…", "HH1S…"), so they
             # must be read as NUL-terminated strings, not sliced at a fixed end offset — an earlier
             # version sliced firmware at [20:45] (dropping its first character) and model at [45:75]
-            # (which lands on the padding NULs before the name, losing the model entirely).
+            # (which lands on the padding NULs before the name, losing it entirely).
             def _cstr(buf, start):
                 if start >= len(buf):
                     return ""

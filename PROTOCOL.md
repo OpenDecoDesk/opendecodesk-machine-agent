@@ -1,8 +1,8 @@
 # SmartStitch embroidery-controller LAN protocol
 
 Reverse-engineered reference for the network protocol these machines speak, reconstructed from
-real Wireshark captures of the vendor's own software talking to two machines (a `1201plus` and a
-`1501ultra`), plus extra captures made on purpose to expose how the check byte is built. This is
+real Wireshark captures of the vendor's own software talking to two machines (a SmartStitch
+1201 Plus and a 1501 Ultra), plus extra captures made on purpose to expose how the check byte is built. This is
 the description behind `embroidery_agent.py`; the stub machines in `test_agent.py` encode
 the same frame shapes.
 
@@ -60,7 +60,7 @@ bytes. That's the whole frame (`header + body + lrc`). See `_recv_frame` in `emb
 
 The vendor's app sends from (and listens on) port 60023, but the machines answer whatever port the
 request came from: a scan sent from a random free port gets its replies on that port (checked on a
-`1201plus` and a `1501ultra`, three tries each). So a scanner needn't hold 60023 — which on Windows can
+1201 Plus and a 1501 Ultra, three tries each). So a scanner needn't hold 60023 — which on Windows can
 be taken by the vendor's app or reserved by the system (WinError 10013).
 
 The reply is **not** an `FA 01` frame — it's a flat fixed-layout record:
@@ -69,11 +69,11 @@ The reply is **not** an `FA 01` frame — it's a flat fixed-layout record:
 |----------|-----------|----------------------------------------------------------------|
 | MAC      | `[9:15]`  | 6 raw bytes.                                                    |
 | firmware | `@19`     | NUL-terminated ASCII, variable length (seen: `JD…`, `HH1S…`).  |
-| model    | `@51`     | NUL-terminated ASCII, variable length (e.g. `1201plus`, `1501ultra`). |
+| name     | `@51`     | NUL-terminated ASCII, variable length: the name entered on the machine (ours were set to `1201plus` and `1501ultra`), not a model number. `/discover` returns it as `model`. |
 
-Read firmware/model as **NUL-terminated strings from their start offset**, never as a fixed
+Read firmware/name as **NUL-terminated strings from their start offset**, never as a fixed
 `[start:end]` slice — the fields are variable length, and an early fixed-slice build lost the
-firmware's first character and the model name entirely.
+firmware's first character and the name entirely.
 
 ---
 
@@ -175,7 +175,7 @@ opcode the firmware answers (`20`, `27`–`2B` get no reply at all). Its grammar
 `01 00 CF 24 00 <param>` (any sub-byte other than `00` gets `CF E1`), but it returns **`CF E0`**
 for *every* parameter: the real stored file name, a made-up one, even an empty one. A handler that
 needed a valid file would answer those differently; one answer for all of them is the signature of
-a stub that always refuses. Seen identically on `1201plus` (`JD20260617.1.3.1`) and `1501ultra`
+a stub that always refuses. Seen identically on the 1201 Plus (`JD20260617.1.3.1`) and 1501 Ultra
 (`HH1S20260508.2.1.2`).
 
 So delete is compiled in but disabled on this firmware, and the agent's `/delete` refuses it — files are
@@ -202,7 +202,7 @@ Read ack:      FA 01 07 00 01 00 CF 22 <page+1 16> <lrc>   (none after the last 
 
 ## 8. Reading a file back (machine → computer) — implemented, verified
 
-Decoded from a capture of the vendor's app copying `<name>.002` off a `1501ultra`, then checked by
+Decoded from a capture of the vendor's app copying `<name>.002` off a 1501 Ultra, then checked by
 reading the same file with `read_file_from_machine` (`POST /read`): byte-for-byte identical. It is the upload (§4) run
 in reverse, on the same port-6000 connection type.
 
