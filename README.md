@@ -91,7 +91,7 @@ All requests must come from an allowed site (see Security). `machineIp` is a mac
 | Request | Answer |
 |---|---|
 | `GET /ping` | `{"ok": true}` — no Origin needed, for checking it's running |
-| `GET /discover` | `{"status":"ok","machines":[{"ip","mac","model","firmware"}]}` — scans the network for about 1.5 s |
+| `GET /discover` | `{"status":"ok","machines":[{"ip","mac","model","firmware"}]}` — scans the network for about 1.5 s; `model` is the name entered on the machine, not a model number |
 | `POST /list {machineIp}` | `{"status":"ok","files":[{"name","size","modified"}]}` |
 | `POST /send {downloadUrl, machineIp, fileName}` | Downloads the design from the site's signed link (`<site>/api/design?…`) and sends it to the machine: `{"status":"ok","fileName","bytes","blocks"}` |
 | `POST /read {machineIp, fileName}` | Copies a file off the machine (`fileName` exactly as `/list` shows it, e.g. `LOGO.012`): `{"status":"ok","fileName","bytes","blocks","ext":"DSB","dataBase64"}`. What comes back is the machine's own stored form (a DST-style header with Barudan records), whatever was sent to it. |
@@ -128,10 +128,19 @@ checks and relay mode with a stub site. Nothing touches a real machine.
 ## The protocol
 
 [PROTOCOL.md](PROTOCOL.md) is the reverse-engineered reference: UDP discovery on port 23, and framed
-TCP on port 6000 (`FA 01 <len> <body> <xor>`) for listing, uploading and reading files back. Tested
-against the `1201plus` and `1501ultra` models.
+TCP on port 6000 (`FA 01 <len> <body> <xor>`) for listing, uploading and reading files back.
 
-SmartStitch is the machine vendor's brand; this project isn't affiliated with or endorsed by them.
+## Compatibility
+Tested on two SmartStitch machines, both with **Raynen** controllers:
+- SmartStitch **1501 Ultra** (SD5314)
+- SmartStitch **1201 Plus** (JD5315)
+
+The agent talks to the Raynen controller, not to anything SmartStitch-specific, so it should also work
+with other machines that have a Raynen controller speaking the same network protocol
+([PROTOCOL.md](PROTOCOL.md)). That's untested so far: if you try one, a note in the issues saying whether
+it worked helps.
+
+SmartStitch and Raynen are their owners' brands; this project isn't affiliated with or endorsed by either.
 
 ## Licence
 
