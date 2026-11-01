@@ -1,0 +1,3 @@
+# LF everywhere, so gofmt and the embedded setup page are the same on Windows checkouts.
+* text=auto eol=lf
+*.cmd text eol=crlf

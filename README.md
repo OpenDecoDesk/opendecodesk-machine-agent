@@ -135,7 +135,7 @@ so it's locked to itself:
 ./build.sh
 ```
 
-Needs [Go](https://go.dev/dl/) 1.22 or newer, nothing else (standard library only). It writes the Mac
+Needs [Go](https://go.dev/dl/) 1.25 or newer, nothing else (standard library only). It writes the Mac
 zip, the Windows .exe and the Linux programs to `dist/`, with `SHA256SUMS.txt`. Every program is built
 on any computer; the Mac app is put together only on a Mac (`lipo`, `codesign`, `ditto`). CI builds them
 on every push; download them from the run's **installers** artifact.
