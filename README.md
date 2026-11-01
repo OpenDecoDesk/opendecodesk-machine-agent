@@ -16,9 +16,14 @@ their protocol for the page. It's one program for Mac, Windows or Linux, with no
 
 On the computer you use the admin site from:
 
-1. **Download** the one for your computer:
-   - Mac: `OpenDecoDesk-Machine-Agent-macOS-….zip` (Apple Silicon and Intel, macOS 13 or newer)
-   - Windows: `OpenDecoDesk-Machine-Agent-Windows-….exe` (Windows 10 or newer)
+1. **Download** the one for your computer (the latest release):
+   - Mac: [OpenDecoDesk-Machine-Agent-macOS.zip](https://github.com/OpenDecoDesk/opendecodesk-machine-agent/releases/latest/download/OpenDecoDesk-Machine-Agent-macOS.zip)
+     (Apple Silicon and Intel, macOS 13 or newer)
+   - Windows: [OpenDecoDesk-Machine-Agent-Windows.exe](https://github.com/OpenDecoDesk/opendecodesk-machine-agent/releases/latest/download/OpenDecoDesk-Machine-Agent-Windows.exe)
+     (Windows 10 or newer)
+
+   The Linux programs and the release notes are on the
+   [latest release's page](https://github.com/OpenDecoDesk/opendecodesk-machine-agent/releases/latest).
 2. **Open it.**
    - Mac: double-click the zip, then double-click **OpenDecoDesk Machine Agent**. The first time, macOS
      says it can't check the app: click **Done**, open **System Settings → Privacy & Security**, scroll
@@ -138,7 +143,8 @@ so it's locked to itself:
 Needs [Go](https://go.dev/dl/) 1.25 or newer, nothing else (standard library only). It writes the Mac
 zip, the Windows .exe and the Linux programs to `dist/`, with `SHA256SUMS.txt`. Every program is built
 on any computer; the Mac app is put together only on a Mac (`lipo`, `codesign`, `ditto`). CI builds them
-on every push; download them from the run's **installers** artifact.
+on every push; download them from the run's **installers** artifact. The file names carry no version
+(it is inside each program), so a release made from them keeps the download links above working.
 
 ## Tests
 

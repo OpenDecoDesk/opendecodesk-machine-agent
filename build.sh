@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Builds the downloads into dist/:
-#   OpenDecoDesk-Machine-Agent-macOS-<version>.zip     the Mac app (Apple Silicon + Intel in one)
-#   OpenDecoDesk-Machine-Agent-Windows-<version>.exe   the Windows program
-#   opendecodesk-machine-agent-linux-{amd64,arm64}-<version>
+#   OpenDecoDesk-Machine-Agent-macOS.zip     the Mac app (Apple Silicon + Intel in one)
+#   OpenDecoDesk-Machine-Agent-Windows.exe   the Windows program
+#   opendecodesk-machine-agent-linux-{amd64,arm64}
+# The names carry no version, so a release's files are always at
+# https://github.com/OpenDecoDesk/opendecodesk-machine-agent/releases/latest/download/<name>; the version is
+# inside each program (`version`, and the Mac app's Info.plist).
 # Needs Go. The Mac app is only put together on a Mac (it needs lipo, codesign and ditto); elsewhere
 # the Mac programs are still compiled, as a check.
 set -euo pipefail
@@ -24,9 +27,9 @@ build() { # GOOS GOARCH OUTPUT [extra ldflags]
 echo "Building $VERSION"
 build darwin arm64 "$WORK/agent-darwin-arm64"
 build darwin amd64 "$WORK/agent-darwin-amd64"
-build windows amd64 "$DIST/OpenDecoDesk-Machine-Agent-Windows-$VERSION.exe" "-H windowsgui"
-build linux amd64 "$DIST/opendecodesk-machine-agent-linux-amd64-$VERSION"
-build linux arm64 "$DIST/opendecodesk-machine-agent-linux-arm64-$VERSION"
+build windows amd64 "$DIST/OpenDecoDesk-Machine-Agent-Windows.exe" "-H windowsgui"
+build linux amd64 "$DIST/opendecodesk-machine-agent-linux-amd64"
+build linux arm64 "$DIST/opendecodesk-machine-agent-linux-arm64"
 
 if command -v lipo >/dev/null && command -v codesign >/dev/null && command -v ditto >/dev/null; then
   echo "  macOS app"
@@ -39,7 +42,7 @@ if command -v lipo >/dev/null && command -v codesign >/dev/null && command -v di
   # won't run a program with no signature at all.
   xattr -cr "$APP"  # codesign refuses extended attributes ("detritus")
   codesign --force --sign - "$APP"
-  ditto -c -k --keepParent "$APP" "$DIST/OpenDecoDesk-Machine-Agent-macOS-$VERSION.zip"
+  ditto -c -k --keepParent "$APP" "$DIST/OpenDecoDesk-Machine-Agent-macOS.zip"
 else
   echo "  (not on a Mac: skipping the macOS app)"
 fi
