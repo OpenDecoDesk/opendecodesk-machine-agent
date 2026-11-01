@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Plain-Python test for embroidery_agent.py — not part of `npm test`, since this agent has nothing
-to do with the Cloudflare app itself.
+Conformance test for the machine agent (the Go program in this folder) — not part of `npm test`,
+since this agent has nothing to do with the Cloudflare app itself.
 
 These machines ("SmartStitch"-branded) speak a proprietary UDP discovery protocol and a
 proprietary TCP JSON listing protocol, reverse-engineered from a real Wireshark capture — not
@@ -11,15 +11,19 @@ multi-page response, since the real protocol pages results), /send (against a st
 the real upload protocol), /read (against a stub that sends a file back the way the machine
 does), /delete (refused clearly, 501 — disabled in firmware), and the
 lockdown that keeps any other web page from driving the agent (Origin/Host/Content-Type checks,
-download-link and machine-IP allowlists). The agent runs with TEST_MODE = True so the stubs'
-loopback addresses and port overrides are accepted.
+download-link and machine-IP allowlists), and the setup page's own lockdown. The agent runs as a
+test build (go build -tags testhooks) so the stubs' loopback addresses and port overrides are
+accepted; the startup checks run against a normal build.
 
-Run: python3 test_agent.py
+Run: python3 test_agent.py            (builds both with Go first)
+     ODD_AGENT_IMPL=python python3 test_agent.py   (the original embroidery_agent.py instead;
+                                                    skips the setup-page checks)
 """
 
 import base64
 import json
 import os
+import re
 import tempfile
 import socket
 import subprocess
@@ -344,9 +348,25 @@ def wait_until_up(url, seconds=30):
     return False
 
 
+IMPL = os.environ.get("ODD_AGENT_IMPL", "go")
+EXE = ".exe" if os.name == "nt" else ""
+_BUILT = {}
+
+
+def go_agent(test_mode):
+    """Builds the agent once per kind: the test build (TEST_MODE on) or the normal build."""
+    key = "test" if test_mode else "release"
+    if key not in _BUILT:
+        out = os.path.join(_TMP, f"agent-{key}{EXE}")
+        cmd = ["go", "build", "-o", out] + (["-tags", "testhooks"] if test_mode else []) + ["."]
+        subprocess.run(cmd, cwd=HERE, check=True)
+        _BUILT[key] = out
+    return _BUILT[key]
+
+
 def agent_script(test_mode=True, **replace):
-    """A copy of the agent to run in a subprocess (a file, not `python -c`: the source is longer than
-    Windows allows on a command line). test_mode flips TEST_MODE; `replace` swaps constants."""
+    """A copy of the Python agent to run in a subprocess (a file, not `python -c`: the source is
+    longer than Windows allows on a command line). test_mode flips TEST_MODE; `replace` swaps constants."""
     src = open(os.path.join(HERE, "embroidery_agent.py"), encoding="utf-8").read()
     if test_mode:
         src = src.replace("TEST_MODE = False", "TEST_MODE = True")
@@ -357,6 +377,36 @@ def agent_script(test_mode=True, **replace):
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(src)
     return path
+
+
+def start_agent(*args, test_mode=True, machine_port=None, relay_max_read=None, data_dir=None, run=subprocess.Popen, **kw):
+    """Starts the agent with `args`. machine_port points the agent's machine port (6000 for real)
+    at a stub; relay_max_read lowers the relay's read limit; data_dir is where `run` keeps settings."""
+    env = dict(os.environ)
+    if IMPL == "python":
+        replace = {}
+        if machine_port:
+            replace["TCP_LIST_PORT = 6000"] = f"TCP_LIST_PORT = {machine_port}"
+        if relay_max_read:
+            replace["RELAY_MAX_READ_BYTES = 1_000_000"] = f"RELAY_MAX_READ_BYTES = {relay_max_read}"
+        cmd = [sys.executable, agent_script(test_mode, **replace)]
+    else:
+        cmd = [go_agent(test_mode)]
+        if machine_port:
+            env["ODD_TEST_MACHINE_PORT"] = str(machine_port)
+        if relay_max_read:
+            env["ODD_TEST_RELAY_MAX_READ_BYTES"] = str(relay_max_read)
+        if data_dir:
+            env["ODD_TEST_DATA_DIR"] = data_dir
+    return run(cmd + list(args), env=env, **kw)
+
+
+def stop(proc):
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def get_json(url, timeout=15, headers=None):
@@ -431,9 +481,8 @@ def relay_tests():
     threading.Thread(target=site.serve_forever, daemon=True).start()
     # The stub machine listens on a high port; the real agent always uses 6000, so point the module's
     # constant at the stub for this run.
-    src = agent_script(**{"TCP_LIST_PORT = 6000": f"TCP_LIST_PORT = {recv.port}"})
-    agent = subprocess.Popen([sys.executable, src, "--relay", f"http://127.0.0.1:{site.server_address[1]}",
-                              "--token", StubRelaySite.TOKEN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    agent = start_agent("--relay", f"http://127.0.0.1:{site.server_address[1]}", "--token", StubRelaySite.TOKEN,
+                        machine_port=recv.port, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         deadline = time.time() + 20
         while time.time() < deadline and len(StubRelaySite.results) < 4:
@@ -460,18 +509,17 @@ def relay_tests():
         httpd.shutdown()
 
     # Relay mode refuses to start with a short token, or pointed at a foreign host.
-    base = agent_script(test_mode=False)
-    p = subprocess.run([sys.executable, base, "--relay", "https://admin.example.com", "--token", "short"],
-                       capture_output=True, text=True, timeout=10)
+    p = start_agent("--relay", "https://admin.example.com", "--token", "short", test_mode=False,
+                    run=subprocess.run, capture_output=True, text=True, timeout=10)
     check("a too-short token is refused at startup", p.returncode != 0 and "token" in (p.stderr + p.stdout).lower())
-    p = subprocess.run([sys.executable, base, "--relay", "http://admin.example.com", "--token", "x" * 40],
-                       capture_output=True, text=True, timeout=10)
+    p = start_agent("--relay", "http://admin.example.com", "--token", "x" * 40, test_mode=False,
+                    run=subprocess.run, capture_output=True, text=True, timeout=10)
     check("a relay that isn't https is refused at startup", p.returncode != 0 and "https://" in (p.stderr + p.stdout))
-    p = subprocess.run([sys.executable, base, "--site", "https://admin.example.com/some/path"],
-                       capture_output=True, text=True, timeout=10)
+    p = start_agent("--site", "https://admin.example.com/some/path", test_mode=False,
+                    run=subprocess.run, capture_output=True, text=True, timeout=10)
     check("a --site with a path is refused at startup", p.returncode != 0 and "just the site's address" in (p.stderr + p.stdout))
-    p = subprocess.run([sys.executable, base, "--site", "http://admin.example.com"],
-                       capture_output=True, text=True, timeout=10)
+    p = start_agent("--site", "http://admin.example.com", test_mode=False,
+                    run=subprocess.run, capture_output=True, text=True, timeout=10)
     check("an http:// --site is refused at startup", p.returncode != 0 and "https://" in (p.stderr + p.stdout))
 
 
@@ -486,10 +534,8 @@ def relay_read_tests():
     StubRelaySite.results = {}
     site = ThreadingHTTPServer(("127.0.0.1", 0), StubRelaySite)
     threading.Thread(target=site.serve_forever, daemon=True).start()
-    src = agent_script(**{"TCP_LIST_PORT = 6000": f"TCP_LIST_PORT = {sender.port}",
-                          "RELAY_MAX_READ_BYTES = 1_000_000": "RELAY_MAX_READ_BYTES = 1_500"})
-    agent = subprocess.Popen([sys.executable, src, "--relay", f"http://127.0.0.1:{site.server_address[1]}",
-                              "--token", StubRelaySite.TOKEN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    agent = start_agent("--relay", f"http://127.0.0.1:{site.server_address[1]}", "--token", StubRelaySite.TOKEN,
+                        machine_port=sender.port, relay_max_read=1500, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         deadline = time.time() + 15
         while time.time() < deadline and "read0000000000000000a" not in StubRelaySite.results:
@@ -510,9 +556,8 @@ def relay_read_tests():
     sender = StubSendingMachine({"Relay Patch.005": small})
     StubRelaySite.jobs = [{"id": "read0000000000000000b", "type": "read", "issuedAt": int(time.time() * 1000),
                            "machineIp": "127.0.0.1", "fileName": "Relay Patch.005"}]
-    src = agent_script(**{"TCP_LIST_PORT = 6000": f"TCP_LIST_PORT = {sender.port}"})
-    agent = subprocess.Popen([sys.executable, src, "--relay", f"http://127.0.0.1:{site.server_address[1]}",
-                              "--token", StubRelaySite.TOKEN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    agent = start_agent("--relay", f"http://127.0.0.1:{site.server_address[1]}", "--token", StubRelaySite.TOKEN,
+                        machine_port=sender.port, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         deadline = time.time() + 15
         while time.time() < deadline and "read0000000000000000b" not in StubRelaySite.results:
@@ -531,11 +576,107 @@ def relay_read_tests():
         site.shutdown()
 
 
+def http(method, url, payload=None, headers=None, timeout=15):
+    """(status, response headers, body bytes) — for checks on headers as well as JSON."""
+    data = None if payload is None else json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.headers, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read()
+
+
+def setup_tests():
+    """The installed agent (`run`): its setup page saves the admin site and it applies at once — and
+    no other web page can use that page's API."""
+    port = AGENT_PORT + 2
+    url = f"http://127.0.0.1:{port}"
+    self_origin = url
+    data_dir = os.path.join(_TMP, "setup-data")
+    proc = start_agent("run", "--port", str(port), data_dir=data_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        if not wait_until_up(url):
+            check("=== setup page ===\nthe installed agent starts", False)
+            return
+        status, hdrs, page = http("GET", f"{url}/setup")
+        token = re.search(rb'name="setup-token" content="([0-9a-f]{64})"', page)
+        check("=== setup page ===\nGET /setup serves the page with a token", status == 200 and token is not None)
+        check("the page can't be framed (X-Frame-Options and frame-ancestors)",
+              hdrs.get("X-Frame-Options") == "DENY" and "frame-ancestors 'none'" in hdrs.get("Content-Security-Policy", ""))
+        token = token.group(1).decode() if token else ""
+        status, _, _ = http("GET", f"{url}/setup", headers={"Host": f"attacker.example:{port}"})
+        check("the page is refused to a rebinding-style Host (403)", status == 403)
+
+        def api(action, payload=None, origin=self_origin, tok=None, host=None):
+            h = {"Content-Type": "application/json", "X-Setup-Token": token if tok is None else tok}
+            if origin:
+                h["Origin"] = origin
+            if host:
+                h["Host"] = host
+            status, hdrs, body = http("POST", f"{url}/setup/api/{action}", payload or {}, h)
+            return status, hdrs, json.loads(body or b"{}")
+
+        status, _, _ = api("state", tok="")
+        check("the setup API without the page's token is refused (403)", status == 403)
+        status, hdrs, _ = api("state", origin=ADMIN_ORIGIN)
+        check("the setup API from another Origin is refused (403), with no CORS header",
+              status == 403 and hdrs.get("Access-Control-Allow-Origin") is None)
+        status, _, _ = api("state", origin="https://evil.example")
+        check("…from any other site, too (403)", status == 403)
+        status, _, _ = api("state", host=f"attacker.example:{port}")
+        check("the setup API to a rebinding-style Host is refused (403)", status == 403)
+        status, _, data = api("state")
+        check("the setup page's own call works and starts with no site", status == 200 and data.get("sites") == [])
+        status, _, data = api("state", origin=None)
+        check("…also when the browser sends no Origin (same-origin)", status == 200)
+
+        status, data = post_json(f"{url}/list", {"machineIp": "127.0.0.1"})
+        check("before a site is saved, the admin page is refused (403)", status == 403)
+        status, _, data = api("add-site", {"site": "http://admin.example.com"})
+        check("an http:// site is refused (400) with a plain message", status == 400 and "https://" in data.get("message", ""))
+        status, _, data = api("add-site", {"site": "https://Admin.Example.com/"})
+        check("saving the admin site stores its origin", status == 200 and data.get("sites") == [ADMIN_ORIGIN])
+        saved = json.load(open(os.path.join(data_dir, "settings.json")))
+        check("…in settings.json", saved.get("sites") == [ADMIN_ORIGIN])
+        if os.name != "nt":
+            mode = os.stat(os.path.join(data_dir, "settings.json")).st_mode & 0o777
+            check("settings.json is readable only by this user (0600)", mode == 0o600)
+        status, data = post_json(f"{url}/list", {})
+        check("the saved site can use the agent at once, no restart (400 = past the Origin check)", status == 400)
+        status, _, data = api("relay", {"site": "https://admin.example.com", "token": "short"})
+        check("relay mode with a short token is refused (400)", status == 400)
+        status, _, data = api("remove-site", {"site": ADMIN_ORIGIN})
+        check("removing the site works", status == 200 and data.get("sites") == [])
+        status, data = post_json(f"{url}/list", {})
+        check("…and the site is refused again (403)", status == 403)
+        status, _, data = api("remove")
+        try:
+            proc.wait(timeout=5)
+            exited = True
+        except subprocess.TimeoutExpired:
+            exited = False
+        check("Remove answers, stops the agent and deletes its folder",
+              status == 200 and data.get("removed") is True and exited and not os.path.exists(data_dir))
+    finally:
+        stop(proc)
+
+    # `install` (what a double-click does), in a scratch folder: a test build never touches the login service.
+    data_dir = os.path.join(_TMP, "install-data")
+    p = start_agent("install", "--site", "https://admin.example.com", "--no-browser", data_dir=data_dir,
+                    run=subprocess.run, capture_output=True, text=True, timeout=30)
+    saved = {}
+    if os.path.exists(os.path.join(data_dir, "settings.json")):
+        saved = json.load(open(os.path.join(data_dir, "settings.json")))
+    installed = [f for f in os.listdir(data_dir) if f.startswith("OpenDecoDesk Machine Agent") or f == "opendecodesk-machine-agent"] \
+        if os.path.isdir(data_dir) else []
+    check("=== install ===\ninstall copies the program and saves the site",
+          p.returncode == 0 and saved.get("sites") == [ADMIN_ORIGIN] and len(installed) == 1)
+
+
 def main():
-    proc = subprocess.Popen(
-        [sys.executable, agent_script(), "--site", "https://Admin.Example.com/", "--port", str(AGENT_PORT)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-    )
+    proc = start_agent("--site", "https://Admin.Example.com/", "--port", str(AGENT_PORT),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if not wait_until_up(AGENT_URL):
         out = proc.stdout.read1(65536) if proc.poll() is not None else b"(still running)"
         print("The agent didn't start:", out.decode("utf-8", "replace"))
@@ -718,8 +859,7 @@ def main():
 
         # 9. An agent told no site at all: /ping answers, everything else is refused and says how to fix it.
         bare_port = AGENT_PORT + 1
-        bare = subprocess.Popen([sys.executable, agent_script(), "--port", str(bare_port)],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        bare = start_agent("--port", str(bare_port), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
             bare_url = f"http://127.0.0.1:{bare_port}"
             wait_until_up(bare_url)
@@ -745,6 +885,8 @@ def main():
 
         relay_tests()
         relay_read_tests()
+        if IMPL != "python":
+            setup_tests()
 
     finally:
         proc.terminate()

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="setup-token" content="{{TOKEN}}">
+<title>Machine Agent setup</title>
+<style nonce="{{NONCE}}">
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1b; --muted: #5f5e5a; --line: #dddbd5;
+    --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1d7a3a; --ok-bg: #e6f4ea; --bad: #b3261e; --bad-bg: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ecebe7; --muted: #a8a69f; --line: #3a3936;
+      --accent: #7c9cf5; --accent-text: #10121a; --ok: #7fd197; --ok-bg: #18321f; --bad: #f19b94; --bad-bg: #3a1c1a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 24px; }
+  h1 { font-size: 28px; margin: 0; }
+  h2 { font-size: 21px; margin: 0 0 8px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 16px; }
+  .pill { font-size: 15px; padding: 3px 12px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+  .pill.off { background: var(--bad-bg); color: var(--bad); }
+  section, details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  summary { font-size: 19px; font-weight: 600; cursor: pointer; }
+  details[open] summary { margin-bottom: 12px; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
+  input { flex: 1 1 260px; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text); }
+  button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; border: 1px solid transparent;
+    background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button.plain { background: transparent; color: var(--accent); border-color: var(--line); font-weight: 500; padding: 6px 12px; }
+  button.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+  button:disabled { opacity: .6; cursor: default; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  .msg { min-height: 1.5em; font-size: 16px; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 16px; }
+  th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  th { color: var(--muted); font-weight: 600; }
+  footer { margin-top: 24px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>OpenDecoDesk Machine Agent</h1>
+    <span id="status" class="pill">Running</span>
+    <span id="version" class="muted"></span>
+  </header>
+
+  <div id="gone" hidden>
+    <section><h2>The agent isn't running</h2>
+      <p>Open <strong>OpenDecoDesk Machine Agent</strong> again to start it, then reload this page.</p></section>
+  </div>
+
+  <div id="removed" hidden>
+    <section><h2>Removed</h2>
+      <p>The machine agent has been removed from this computer. You can close this page and delete the
+        app you downloaded.</p></section>
+  </div>
+
+  <div id="app">
+    <section>
+      <h2>1. Your admin site</h2>
+      <p>Type the address you use to open your OpenDecoDesk admin, then click <strong>Save</strong>.</p>
+      <form id="siteForm" novalidate>
+        <input id="siteInput" type="url" inputmode="url" autocomplete="url" spellcheck="false"
+               placeholder="https://admin.yourshop.example" aria-label="Admin site address">
+        <button type="submit">Save</button>
+      </form>
+      <p id="siteMsg" class="msg" role="status"></p>
+      <ul id="siteList"></ul>
+    </section>
+
+    <section>
+      <h2>2. Find your machines</h2>
+      <p>Make sure the embroidery machines are switched on, then click the button. It takes a couple of seconds.</p>
+      <p id="winNote" class="muted" hidden>The first time, Windows may ask whether to let OpenDecoDesk Machine Agent use
+        the network. Tick <strong>Private networks</strong> and click <strong>Allow</strong>, then click the button again.</p>
+      <button id="findBtn" type="button">Find my machines</button>
+      <p id="findMsg" class="msg" role="status"></p>
+      <table id="machines" hidden>
+        <thead><tr><th>Machine</th><th>Address</th><th>Firmware</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. That's it</h2>
+      <p>Go back to your admin site and open the machine screens. This agent starts by itself whenever you log in to
+        this computer, so you can close this page. To come back here, open <strong>OpenDecoDesk Machine Agent</strong> again.</p>
+    </section>
+
+    <details id="relayBox">
+      <summary>Phones and tablets (optional)</summary>
+      <p class="muted">A phone or tablet can't reach this computer directly. Turn this on and this computer passes their
+        requests to the machines through your admin site. You need the site's <strong>AGENT_TOKEN</strong>
+        (32 or more characters) from whoever set up your site.</p>
+      <p id="relayState"></p>
+      <form id="relayForm" novalidate>
+        <input id="relaySite" type="url" inputmode="url" spellcheck="false" placeholder="https://admin.yourshop.example" aria-label="Admin site for phones and tablets">
+        <input id="relayToken" type="password" autocomplete="off" spellcheck="false" placeholder="AGENT_TOKEN" aria-label="AGENT_TOKEN">
+        <button type="submit">Turn on</button>
+      </form>
+      <button id="relayOff" class="plain" type="button" hidden>Turn off</button>
+      <p id="relayMsg" class="msg" role="status"></p>
+    </details>
+
+    <footer>
+      <span id="logFile" class="muted"></span>
+      <button id="removeBtn" class="danger" type="button">Remove from this computer</button>
+    </footer>
+  </div>
+</main>
+
+<script nonce="{{NONCE}}">
+(function () {
+  "use strict";
+  var TOKEN = document.querySelector('meta[name="setup-token"]').content;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function api(action, body) {
+    return fetch("/setup/api/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Setup-Token": TOKEN },
+      body: JSON.stringify(body || {})
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, data: j }; });
+    }, function () {
+      showGone();
+      return { ok: false, data: { message: "The agent isn't running." } };
+    });
+  }
+
+  function say(el, text, kind) {
+    el.textContent = text || "";
+    el.className = "msg" + (kind ? " " + kind : "");
+  }
+
+  function showGone() {
+    $("app").hidden = true;
+    $("gone").hidden = false;
+    $("status").textContent = "Not running";
+    $("status").className = "pill off";
+  }
+
+  function render(s) {
+    $("version").textContent = "Version " + s.version;
+    $("logFile").textContent = s.logFile ? "Log: " + s.logFile : "";
+    $("winNote").hidden = s.os !== "windows";
+
+    var list = $("siteList");
+    list.textContent = "";
+    (s.sites || []).forEach(function (site) {
+      var li = document.createElement("li");
+      var name = document.createElement("span");
+      name.textContent = site;
+      var rm = document.createElement("button");
+      rm.className = "plain";
+      rm.type = "button";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", function () {
+        api("remove-site", { site: site }).then(function (r) {
+          if (r.ok) { render(r.data); say($("siteMsg"), "Removed " + site + ".", "ok"); }
+          else say($("siteMsg"), r.data.message, "bad");
+        });
+      });
+      li.appendChild(name);
+      li.appendChild(rm);
+      list.appendChild(li);
+    });
+    if (!(s.sites || []).length && !s.relayOn) {
+      say($("siteMsg"), "No admin site yet — the agent won't answer any site until you add one.", "bad");
+    }
+
+    $("relayOff").hidden = !s.relaySite;
+    $("relayState").textContent = s.relaySite
+      ? (s.relayOn ? "On, through " + s.relaySite + "." : "Saved for " + s.relaySite + " but not running — check the token.")
+      : "Off.";
+    if (s.relaySite) {
+      $("relaySite").value = s.relaySite;
+      $("relayToken").placeholder = "AGENT_TOKEN (leave empty to keep the saved one)";
+    }
+  }
+
+  $("siteForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var site = $("siteInput").value.trim();
+    if (!site) { say($("siteMsg"), "Type your admin site's address first.", "bad"); return; }
+    if (!/^[a-z]+:\/\//i.test(site)) site = "https://" + site;
+    api("add-site", { site: site }).then(function (r) {
+      if (r.ok) {
+        render(r.data);
+        $("siteInput").value = "";
+        say($("siteMsg"), "Saved. Your admin site can use the machines now.", "ok");
+      } else say($("siteMsg"), r.data.message, "bad");
+    });
+  });
+
+  $("findBtn").addEventListener("click", function () {
+    var btn = $("findBtn");
+    btn.disabled = true;
+    say($("findMsg"), "Looking…");
+    api("discover").then(function (r) {
+      btn.disabled = false;
+      var table = $("machines"), body = table.querySelector("tbody");
+      body.textContent = "";
+      if (!r.ok) { table.hidden = true; say($("findMsg"), r.data.message, "bad"); return; }
+      var ms = r.data.machines || [];
+      ms.forEach(function (m) {
+        var tr = document.createElement("tr");
+        [m.model, m.ip, m.firmware].forEach(function (v) {
+          var td = document.createElement("td");
+          td.textContent = v || "";
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      table.hidden = !ms.length;
+      say($("findMsg"), ms.length
+        ? "Found " + ms.length + (ms.length === 1 ? " machine." : " machines.")
+        : "No machines answered. Check they're switched on and on the same network as this computer, then try again.",
+        ms.length ? "ok" : "bad");
+    });
+  });
+
+  $("relayForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var site = $("relaySite").value.trim();
+    if (site && !/^[a-z]+:\/\//i.test(site)) site = "https://" + site;
+    if (!site) { say($("relayMsg"), "Type your admin site's address first.", "bad"); return; }
+    api("relay", { site: site, token: $("relayToken").value.trim() }).then(function (r) {
+      if (r.ok) { render(r.data); $("relayToken").value = ""; say($("relayMsg"), "Saved.", "ok"); }
+      else say($("relayMsg"), r.data.message, "bad");
+    });
+  });
+
+  $("relayOff").addEventListener("click", function () {
+    api("relay", { site: "" }).then(function (r) {
+      if (r.ok) { render(r.data); $("relaySite").value = ""; say($("relayMsg"), "Turned off.", "ok"); }
+      else say($("relayMsg"), r.data.message, "bad");
+    });
+  });
+
+  $("removeBtn").addEventListener("click", function () {
+    if (!confirm("Remove the machine agent from this computer? Your admin site won't be able to use the machines from here until you install it again.")) return;
+    api("remove").then(function (r) {
+      if (!r.ok) { alert(r.data.message); return; }
+      $("app").hidden = true;
+      $("removed").hidden = false;
+      $("status").textContent = "Removed";
+      $("status").className = "pill off";
+    });
+  });
+
+  api("state").then(function (r) { if (r.ok) render(r.data); });
+})();
+</script>
+</body>
+</html>

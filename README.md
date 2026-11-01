@@ -7,36 +7,63 @@ Files screens call it — and any site that speaks the same small HTTP API can u
 
 A web page can't open raw network connections, and a website's servers can't reach a machine on your
 shop's private network, so this runs on a computer **on the same network as the machines** and speaks
-their protocol for the page. One Python file, standard library only — nothing to `pip install`.
-Python 3.9 or newer.
+their protocol for the page. It's one program for Mac, Windows or Linux, with nothing else to install.
 
 > Just want to copy files between a folder and a machine, without a website? Use the desktop app,
 > [opendecodesk-machine-files](https://github.com/OpenDecoDesk/opendecodesk-machine-files).
 
-## Running it
+## Install
 
-**On the computer you use the admin site from** (loopback mode):
+On the computer you use the admin site from:
+
+1. **Download** the one for your computer:
+   - Mac: `OpenDecoDesk-Machine-Agent-macOS-….zip` (Apple Silicon and Intel, macOS 13 or newer)
+   - Windows: `OpenDecoDesk-Machine-Agent-Windows-….exe` (Windows 10 or newer)
+2. **Open it.**
+   - Mac: double-click the zip, then double-click **OpenDecoDesk Machine Agent**. The first time, macOS
+     says it can't check the app: click **Done**, open **System Settings → Privacy & Security**, scroll
+     down, click **Open Anyway** next to OpenDecoDesk Machine Agent, then **Open**.
+   - Windows: double-click the .exe. If Windows says "Windows protected your PC", click **More info**,
+     then **Run anyway**.
+3. **Your browser opens the setup page.** Type the address of your admin site
+   (e.g. `https://admin.yourshop.example`) and click **Save**.
+4. Click **Find my machines** to check it can see them. On Windows, the first time, tick **Private
+   networks** and click **Allow** when Windows asks, then click the button again.
+
+That's it: the agent now starts by itself whenever you log in. To get back to the setup page, open
+OpenDecoDesk Machine Agent again. To update, download the new version and open it: it replaces the old
+one and keeps your settings. To remove it, click **Remove from this computer** on the setup page (on
+Windows it's also in **Settings → Apps**).
+
+The warnings in step 2 appear because the downloads aren't signed with an Apple or Microsoft developer
+certificate yet; they appear once.
+
+**Phones and tablets** can't reach a program on another computer, so for them the agent connects *out*
+to your site instead (relay mode). On the setup page, open **Phones and tablets**, enter the site and
+its `AGENT_TOKEN`, and click **Turn on**. Use a computer that's always on. Both ways can run at once.
+
+| | Mac | Windows |
+|---|---|---|
+| Program and settings | `~/Library/Application Support/OpenDecoDesk Machine Agent/` | `%LOCALAPPDATA%\OpenDecoDesk Machine Agent\` |
+| Log | `~/Library/Logs/OpenDecoDesk Machine Agent.log` | `agent.log` in the folder above |
+| Starts at login through | a launchd login item (`org.opendecodesk.machine-agent`) | Task Scheduler (`OpenDecoDesk Machine Agent`), restarted if it stops |
+
+No admin password is needed anywhere. On a Mac that had the earlier Python agent installed with
+`install-service.py`, the app takes over its sites and relay settings and removes it.
+
+## From a terminal
+
+The same program runs in the foreground with options, as the earlier Python agent did:
 
 ```bash
-python3 embroidery_agent.py --site https://admin.yourshop.example
+./opendecodesk-machine-agent --site https://admin.yourshop.example
+ODD_AGENT_TOKEN='<the site's AGENT_TOKEN>' ./opendecodesk-machine-agent --relay https://admin.yourshop.example
 ```
 
-It listens on `http://127.0.0.1:8787`, reachable only from this computer. `--site` is the admin site
-allowed to use it (repeat it for several, e.g. a test site too); every other web page is refused. The
-admin page reaches it because browsers treat `127.0.0.1` as secure — the site's Content-Security-Policy
-must allow `connect-src http://127.0.0.1:8787` (OpenDecoDesk's does).
-
-**For phones and tablets** (relay mode): a phone can't reach `127.0.0.1` on another computer, so run
-the agent on any always-on computer on the shop network, connecting *out* to the site:
-
-```bash
-ODD_AGENT_TOKEN='<the site's AGENT_TOKEN>' python3 embroidery_agent.py --relay https://admin.yourshop.example
-```
-
-The page queues a job on the site (`/api/agent`), the agent picks it up within a couple of seconds
-while someone is on a machine screen (about a minute when idle), runs it and posts the answer back.
-Jobs older than two minutes are dropped, so nothing is ever sent to a machine late. Both modes can run
-at once.
+(On a Mac the program is `OpenDecoDesk Machine Agent.app/Contents/MacOS/OpenDecoDesk Machine Agent`.)
+In relay mode the page queues a job on the site (`/api/agent`), the agent picks it up within a couple
+of seconds while someone is on a machine screen (about a minute when idle), runs it and posts the
+answer back. Jobs older than two minutes are dropped, so nothing is ever sent to a machine late.
 
 | Setting | Environment variable | Meaning |
 |---|---|---|
@@ -45,43 +72,18 @@ at once.
 | `--token` | `ODD_AGENT_TOKEN` | Relay mode: the site's `AGENT_TOKEN`, 32+ characters. Prefer the environment variable. |
 | `--port` | `ODD_AGENT_PORT` | Loopback port; default 8787, which is what the admin site expects. |
 
+Other commands: `install [--site URL] [--relay URL] [--no-browser]` (what a double-click does),
+`uninstall`, `run` (the installed service), `version`.
+
 The machine vendor's own app can stay open: the agent hears the machines' replies on a port of its own
 (any free one — the machines answer whichever port asked).
 
-## Run it as a service
-
-**macOS** — installs a login service that starts automatically and restarts if it stops:
-
-```bash
-python3 install-service.py --site https://admin.yourshop.example
-python3 install-service.py --relay https://admin.yourshop.example     # asks for the token
-```
-
-It copies the agent to `~/Library/Application Support/opendecodesk-machine-agent/` (macOS won't let a
-background service read files in `~/Documents`), logs to `~/Library/Logs/`, and keeps the relay token
-in a service file only you can read. Run it again after updating the agent; `--remove` takes it away.
-
-**Linux (systemd, per user)** — `~/.config/systemd/user/opendecodesk-machine-agent.service`:
-
-```ini
-[Unit]
-Description=OpenDecoDesk machine agent
-
-[Service]
-ExecStart=/usr/bin/python3 /opt/opendecodesk-machine-agent/embroidery_agent.py --site https://admin.yourshop.example
-Restart=always
-
-[Install]
-WantedBy=default.target
-```
-
-then `systemctl --user enable --now opendecodesk-machine-agent`. For relay mode, put the token in an
-`EnvironmentFile=` readable only by you.
-
-**Windows** — Task Scheduler → Create Task: trigger *At log on*; action *Start a program* `pythonw.exe`
-with arguments `C:\path\to\embroidery_agent.py --site https://admin.yourshop.example`; on the Settings
-tab, *If the task fails, restart every 1 minute*. Allow it through Windows Firewall on private networks
-when asked (the machine scan needs it).
+**Linux** (e.g. an always-on Raspberry Pi for relay mode): download
+`opendecodesk-machine-agent-linux-amd64-…` or `…-arm64-…`, make it executable, and run
+`./opendecodesk-machine-agent-linux-… install --no-browser --relay https://admin.yourshop.example` with
+`ODD_AGENT_TOKEN` set. That sets up a systemd user service (`systemctl --user status
+opendecodesk-machine-agent`; logs with `journalctl --user -u opendecodesk-machine-agent`). For it to run
+without anyone logged in, run `loginctl enable-linger` once.
 
 ## What it answers
 
@@ -90,7 +92,7 @@ All requests must come from an allowed site (see Security). `machineIp` is a mac
 
 | Request | Answer |
 |---|---|
-| `GET /ping` | `{"ok": true}` — no Origin needed, for checking it's running |
+| `GET /ping` | `{"ok": true, "agent", "version"}` — no Origin needed, for checking it's running |
 | `GET /discover` | `{"status":"ok","machines":[{"ip","mac","model","firmware"}]}` — scans the network for about 1.5 s; `model` is the name entered on the machine, not a model number |
 | `POST /list {machineIp}` | `{"status":"ok","files":[{"name","size","modified"}]}` |
 | `POST /send {downloadUrl, machineIp, fileName}` | Downloads the design from the site's signed link (`<site>/api/design?…`) and sends it to the machine: `{"status":"ok","fileName","bytes","blocks"}` |
@@ -115,15 +117,43 @@ doing anything:
 
 In relay mode the agent only connects out, over https, to the one site, with its token.
 
+The setup page (`/setup`, only while running as the installed service) changes who may use the agent,
+so it's locked to itself:
+
+- the same `Host` check;
+- every setup call carries a random token written only into the page; other sites can't read the
+  page (it never sends CORS headers), and can't send that header cross-site without a preflight,
+  which is never approved;
+- an `Origin`, when the browser sends one, must be the agent's own (`http://127.0.0.1:8787`);
+- the page can't be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so it can't be
+  clickjacked;
+- `settings.json` (which can hold the relay token) is readable only by you.
+
+## Building
+
+```bash
+./build.sh
+```
+
+Needs [Go](https://go.dev/dl/) 1.22 or newer, nothing else (standard library only). It writes the Mac
+zip, the Windows .exe and the Linux programs to `dist/`, with `SHA256SUMS.txt`. Every program is built
+on any computer; the Mac app is put together only on a Mac (`lipo`, `codesign`, `ditto`). CI builds them
+on every push; download them from the run's **installers** artifact.
+
 ## Tests
 
 ```bash
 python3 test_agent.py
 ```
 
-Starts the real agent and runs it against stub machines on this computer that speak the real protocol
-(discovery, multi-page listing, an upload checked byte for byte, a file read back), plus the security
-checks and relay mode with a stub site. Nothing touches a real machine.
+Builds the agent, starts it, and runs it against stub machines on this computer that speak the real
+protocol (discovery, multi-page listing, an upload checked byte for byte, a file read back), plus the
+security checks, relay mode with a stub site, and the setup page's lockdown. Nothing touches a real
+machine or the real login service. Needs Go and Python 3.9+.
+
+`embroidery_agent.py` is the original Python agent, kept as the reference until the Go program has
+been tried on real machines; `ODD_AGENT_IMPL=python python3 test_agent.py` runs the same checks against
+it.
 
 ## The protocol
 

@@ -15,12 +15,75 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.12"]
     runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Vet (every platform)
+        shell: bash
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          for os in darwin windows linux; do GOOS=$os go vet ./...; done
+          go vet -tags testhooks ./...
+      - name: Agent tests (stub machines on this computer)
+        run: python test_agent.py
+
+  # The original Python agent, while it's kept as the reference.
+  python-reference:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python }}
-      - name: Agent tests (stub machines on this computer)
-        run: python test_agent.py
+          python-version: "3.9"
+      - run: python test_agent.py
+        env:
+          ODD_AGENT_IMPL: python
+
+  installers:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: dist/
+
+  # Installs for real on a Windows runner (Task Scheduler, no admin needed), checks it answers,
+  # and removes it again.
+  windows-install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install, check, remove
+        shell: pwsh
+        run: |
+          go build -o agent.exe .
+          ./agent.exe install --site https://admin.example.test --no-browser
+          if ($LASTEXITCODE -ne 0) { throw "install failed" }
+          $ping = Invoke-RestMethod http://127.0.0.1:8787/ping
+          if (-not $ping.ok) { throw "no /ping" }
+          schtasks /Query /TN "OpenDecoDesk Machine Agent"
+          if ($LASTEXITCODE -ne 0) { throw "no scheduled task" }
+          $settings = Get-Content "$env:LOCALAPPDATA\OpenDecoDesk Machine Agent\settings.json" | ConvertFrom-Json
+          if ($settings.sites -notcontains "https://admin.example.test") { throw "site not saved" }
+          & "$env:LOCALAPPDATA\OpenDecoDesk Machine Agent\OpenDecoDesk Machine Agent.exe" uninstall --quiet
+          if ($LASTEXITCODE -ne 0) { throw "uninstall failed" }
+          Start-Sleep -Seconds 6
+          schtasks /Query /TN "OpenDecoDesk Machine Agent" 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "task still there" }
+          try { Invoke-RestMethod http://127.0.0.1:8787/ping -TimeoutSec 3; throw "still running" } catch { if ($_.Exception.Message -eq "still running") { throw } }
+          if (Test-Path "$env:LOCALAPPDATA\OpenDecoDesk Machine Agent") { throw "folder still there" }
+          $global:LASTEXITCODE = 0
