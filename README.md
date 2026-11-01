@@ -84,7 +84,7 @@ The machine vendor's own app can stay open: the agent hears the machines' replie
 (any free one — the machines answer whichever port asked).
 
 **Linux** (e.g. an always-on Raspberry Pi for relay mode): download
-`opendecodesk-machine-agent-linux-amd64-…` or `…-arm64-…`, make it executable, and run
+`opendecodesk-machine-agent-linux-amd64` or `…-arm64`, make it executable, and run
 `./opendecodesk-machine-agent-linux-… install --no-browser --relay https://admin.yourshop.example` with
 `ODD_AGENT_TOKEN` set. That sets up a systemd user service (`systemctl --user status
 opendecodesk-machine-agent`; logs with `journalctl --user -u opendecodesk-machine-agent`). For it to run
@@ -146,6 +146,18 @@ on any computer; the Mac app is put together only on a Mac (`lipo`, `codesign`, 
 on every push; download them from the run's **installers** artifact. The file names carry no version
 (it is inside each program), so a release made from them keeps the download links above working.
 
+The version is a release's date (UTC) and that day's build number, `YYYY.MM.DD.NN`: `2026.11.01.01`,
+then `2026.11.01.02` for a second release that day. Nobody sets it by hand. A local build, and CI's
+ordinary builds, say `dev`; `VERSION=… ./build.sh` stamps another. It shows in `version`, `/ping`, the
+setup page's title and header, and the Mac app's Info.plist (`YYYY.MM.DD`, and `YYYY.MM.DDNN` as the
+build number; `0.0.0` for `dev`).
+
+**Releases:** on GitHub, open **Actions → CI → Run workflow**, keep the branch on `main`, tick **Publish
+a release** and run it. CI works out the version from the tags already made
+([scripts/next-version.sh](scripts/next-version.sh)), builds the installers with it, and once every test
+has passed publishes them as the release `v<version>`, with [RELEASE_NOTES.md](RELEASE_NOTES.md) as its
+notes.
+
 ## Tests
 
 ```bash
@@ -154,8 +166,9 @@ python3 test_agent.py
 
 Builds the agent, starts it, and runs it against stub machines on this computer that speak the real
 protocol (discovery, multi-page listing, an upload checked byte for byte, a file read back), plus the
-security checks, relay mode with a stub site, and the setup page's lockdown. Nothing touches a real
-machine or the real login service. Needs Go and Python 3.9+.
+security checks, relay mode with a stub site, and the setup page's lockdown and version. Nothing touches
+a real machine or the real login service. Needs Go and Python 3.9+. `scripts/test-next-version.sh`
+checks the release version's arithmetic against a scratch repository's tags.
 
 `embroidery_agent.py` is the original Python agent, kept as the reference until the Go program has
 been tried on real machines; `ODD_AGENT_IMPL=python python3 test_agent.py` runs the same checks against

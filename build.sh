@@ -5,13 +5,24 @@
 #   opendecodesk-machine-agent-linux-{amd64,arm64}
 # The names carry no version, so a release's files are always at
 # https://github.com/OpenDecoDesk/opendecodesk-machine-agent/releases/latest/download/<name>; the version is
-# inside each program (`version`, and the Mac app's Info.plist).
+# inside each program (`version`, the setup page, and the Mac app's Info.plist).
+# The version is VERSION: a release's date and that day's build number, YYYY.MM.DD.NN, which CI works
+# out (scripts/next-version.sh) when it makes a release. Built any other way it's `dev`.
 # Needs Go. The Mac app is only put together on a Mac (it needs lipo, codesign and ditto); elsewhere
 # the Mac programs are still compiled, as a check.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${VERSION:-$(date +%Y.%m.%d)-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
+VERSION="${VERSION:-dev}"
+# The Mac app's version numbers can only be up to three whole numbers: YYYY.MM.DD to show, and
+# YYYY.MM.DDNN so a day's second build counts as newer. Anything else (dev) is 0.0.0.
+if [[ $VERSION =~ ^([0-9]{4}\.[0-9]{2}\.[0-9]{2})\.([0-9]{2})$ ]]; then
+  SHORT_VERSION="${BASH_REMATCH[1]}"
+  BUNDLE_VERSION="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+else
+  SHORT_VERSION=0.0.0
+  BUNDLE_VERSION=0.0.0
+fi
 APP_NAME="OpenDecoDesk Machine Agent"
 DIST=dist
 WORK="$DIST/work"
@@ -36,7 +47,7 @@ if command -v lipo >/dev/null && command -v codesign >/dev/null && command -v di
   APP="$WORK/$APP_NAME.app"
   mkdir -p "$APP/Contents/MacOS"
   lipo -create -output "$APP/Contents/MacOS/$APP_NAME" "$WORK/agent-darwin-arm64" "$WORK/agent-darwin-amd64"
-  sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHORT_VERSION__/${VERSION%%-*}/g" packaging/macos/Info.plist \
+  sed -e "s/__BUNDLE_VERSION__/$BUNDLE_VERSION/g" -e "s/__SHORT_VERSION__/$SHORT_VERSION/g" packaging/macos/Info.plist \
     > "$APP/Contents/Info.plist"
   # Ad-hoc signature: not a Developer ID (macOS still asks once, "Open Anyway"), but Apple Silicon
   # won't run a program with no signature at all.

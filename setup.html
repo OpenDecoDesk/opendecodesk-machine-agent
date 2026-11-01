@@ -4,24 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="setup-token" content="{{TOKEN}}">
-<title>Machine Agent setup</title>
+<title>OpenDecoDesk Machine Agent {{VERSION}}</title>
 <style nonce="{{NONCE}}">
   :root {
     --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1b; --muted: #5f5e5a; --line: #dddbd5;
+    --brand: #1F2A44; --brand-muted: #6B7280;
     --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1d7a3a; --ok-bg: #e6f4ea; --bad: #b3261e; --bad-bg: #fbeaea;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #161615; --card: #20201e; --text: #ecebe7; --muted: #a8a69f; --line: #3a3936;
+      --brand: #E6E9F0; --brand-muted: #9CA3AF;
       --accent: #7c9cf5; --accent-text: #10121a; --ok: #7fd197; --ok-bg: #18321f; --bad: #f19b94; --bad-bg: #3a1c1a;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
     font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 24px; }
-  h1 { font-size: 28px; margin: 0; }
+  /* The header every OpenDecoDesk app has: the brand mark, the app's name and its version. */
+  .brand { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--bg);
+    border-bottom: 1px solid var(--line); }
+  .brand svg { width: 24px; height: 24px; flex: none; }
+  .brand h1 { font-size: 17px; font-weight: 400; margin: 0; color: var(--brand); }
+  .brand h1 b { font-weight: 600; }
+  .brand .version { margin-left: 6px; font-size: 14px; color: var(--brand-muted); }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  .status { margin-bottom: 16px; }
   h2 { font-size: 21px; margin: 0 0 8px; }
   p { margin: 0 0 12px; }
   .muted { color: var(--muted); font-size: 16px; }
@@ -50,12 +58,18 @@
 </style>
 </head>
 <body>
+<header class="brand">
+  <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
+    <rect width="32" height="32" rx="7" fill="#1F2A44"/>
+    <circle cx="16" cy="17" r="10.5" fill="none" stroke="#F7F3EC" stroke-width="2.5"/>
+    <rect x="13.5" y="3.5" width="5" height="4" rx="1.2" fill="#F7F3EC"/>
+    <path d="M12.5 11.5 V22.5 M12.5 11.5 H15.5 A5.5 5.5 0 0 1 15.5 22.5 H12.5" fill="none" stroke="#E8743B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <h1><b>OpenDecoDesk</b> Machine Agent</h1>
+  <span class="version">{{VERSION}}</span>
+</header>
 <main>
-  <header>
-    <h1>OpenDecoDesk Machine Agent</h1>
-    <span id="status" class="pill">Running</span>
-    <span id="version" class="muted"></span>
-  </header>
+  <p class="status"><span id="status" class="pill">Running</span></p>
 
   <div id="gone" hidden>
     <section><h2>The agent isn't running</h2>
@@ -154,7 +168,6 @@
   }
 
   function render(s) {
-    $("version").textContent = "Version " + s.version;
     $("logFile").textContent = s.logFile ? "Log: " + s.logFile : "";
     $("winNote").hidden = s.os !== "windows";
 

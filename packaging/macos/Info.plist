@@ -17,7 +17,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>__SHORT_VERSION__</string>
 	<key>CFBundleVersion</key>
-	<string>__VERSION__</string>
+	<string>__BUNDLE_VERSION__</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<!-- No Dock icon: the app installs the agent, opens the setup page in the browser and quits. -->

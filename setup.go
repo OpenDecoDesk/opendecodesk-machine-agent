@@ -18,6 +18,7 @@ import (
 	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
+	"html"
 	"net/http"
 	"os"
 	"runtime"
@@ -67,7 +68,8 @@ func serveSetup(w http.ResponseWriter, r *http.Request) {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+
 			"'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-		page := strings.NewReplacer("{{TOKEN}}", setupToken, "{{NONCE}}", nonce).Replace(setupHTML)
+		page := strings.NewReplacer("{{TOKEN}}", setupToken, "{{NONCE}}", nonce,
+			"{{VERSION}}", html.EscapeString(version)).Replace(setupHTML)
 		w.Write([]byte(page))
 		return
 	}

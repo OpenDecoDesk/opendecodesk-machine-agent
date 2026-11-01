@@ -13,7 +13,8 @@ does), /delete (refused clearly, 501 — disabled in firmware), and the
 lockdown that keeps any other web page from driving the agent (Origin/Host/Content-Type checks,
 download-link and machine-IP allowlists), and the setup page's own lockdown. The agent runs as a
 test build (go build -tags testhooks) so the stubs' loopback addresses and port overrides are
-accepted; the startup checks run against a normal build.
+accepted; the startup checks run against a normal build. Both are stamped with a release-style
+version (TEST_VERSION), as build.sh does, to check where it shows.
 
 Run: python3 test_agent.py            (builds both with Go first)
      ODD_AGENT_IMPL=python python3 test_agent.py   (the original embroidery_agent.py instead;
@@ -350,15 +351,18 @@ def wait_until_up(url, seconds=30):
 
 IMPL = os.environ.get("ODD_AGENT_IMPL", "go")
 EXE = ".exe" if os.name == "nt" else ""
+TEST_VERSION = "2026.11.01.07"  # what build.sh stamps for a release: YYYY.MM.DD.NN
 _BUILT = {}
 
 
-def go_agent(test_mode):
-    """Builds the agent once per kind: the test build (TEST_MODE on) or the normal build."""
-    key = "test" if test_mode else "release"
+def go_agent(test_mode, version=TEST_VERSION):
+    """Builds the agent once per kind: the test build (TEST_MODE on) or the normal build, stamped
+    with `version` the way build.sh does."""
+    key = ("test" if test_mode else "release", version)
     if key not in _BUILT:
-        out = os.path.join(_TMP, f"agent-{key}{EXE}")
-        cmd = ["go", "build", "-o", out] + (["-tags", "testhooks"] if test_mode else []) + ["."]
+        out = os.path.join(_TMP, f"agent-{key[0]}-{len(_BUILT)}{EXE}")
+        cmd = ["go", "build", "-o", out, "-ldflags", "-X main.version=" + version] + \
+            (["-tags", "testhooks"] if test_mode else []) + ["."]
         subprocess.run(cmd, cwd=HERE, check=True)
         _BUILT[key] = out
     return _BUILT[key]
@@ -379,9 +383,11 @@ def agent_script(test_mode=True, **replace):
     return path
 
 
-def start_agent(*args, test_mode=True, machine_port=None, relay_max_read=None, data_dir=None, run=subprocess.Popen, **kw):
+def start_agent(*args, test_mode=True, machine_port=None, relay_max_read=None, data_dir=None, run=subprocess.Popen,
+                version=TEST_VERSION, **kw):
     """Starts the agent with `args`. machine_port points the agent's machine port (6000 for real)
-    at a stub; relay_max_read lowers the relay's read limit; data_dir is where `run` keeps settings."""
+    at a stub; relay_max_read lowers the relay's read limit; data_dir is where `run` keeps settings;
+    version is the Go build's version."""
     env = dict(os.environ)
     if IMPL == "python":
         replace = {}
@@ -391,7 +397,7 @@ def start_agent(*args, test_mode=True, machine_port=None, relay_max_read=None, d
             replace["RELAY_MAX_READ_BYTES = 1_000_000"] = f"RELAY_MAX_READ_BYTES = {relay_max_read}"
         cmd = [sys.executable, agent_script(test_mode, **replace)]
     else:
-        cmd = [go_agent(test_mode)]
+        cmd = [go_agent(test_mode, version)]
         if machine_port:
             env["ODD_TEST_MACHINE_PORT"] = str(machine_port)
         if relay_max_read:
@@ -607,6 +613,16 @@ def setup_tests():
         token = token.group(1).decode() if token else ""
         status, _, _ = http("GET", f"{url}/setup", headers={"Host": f"attacker.example:{port}"})
         check("the page is refused to a rebinding-style Host (403)", status == 403)
+        ver = TEST_VERSION.encode()
+        check("the page's title is the app's name and version",
+              b"<title>OpenDecoDesk Machine Agent " + ver + b"</title>" in page)
+        header = re.search(rb'<header class="brand">(.*?)</header>', page, re.S)
+        header = header.group(1) if header else b""
+        check("the header at the top has the brand mark, the name and the version",
+              page.index(b"<header") < page.index(b"<main") and b"<svg" in header and
+              b"<b>OpenDecoDesk</b> Machine Agent" in header and b'<span class="version">' + ver + b"</span>" in header)
+        check("…and the version is shown once (title and header only), every placeholder filled",
+              page.count(ver) == 2 and b"{{" not in page)
 
         def api(action, payload=None, origin=self_origin, tok=None, host=None):
             h = {"Content-Type": "application/json", "X-Setup-Token": token if tok is None else tok}
@@ -661,6 +677,22 @@ def setup_tests():
     finally:
         stop(proc)
 
+    # The version goes into the page escaped, whatever a build was stamped with.
+    port = AGENT_PORT + 3
+    odd = "1<b>&2"  # (no quotes: go build reads -ldflags as quoted fields)
+    proc = start_agent("run", "--port", str(port), data_dir=os.path.join(_TMP, "setup-odd"), version=odd,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        page = b""
+        if wait_until_up(f"http://127.0.0.1:{port}"):
+            _, _, page = http("GET", f"http://127.0.0.1:{port}/setup")
+        check("the version is HTML-escaped on the page",
+              page.count(b"1&lt;b&gt;&amp;2") == 2 and odd.encode() not in page)
+    finally:
+        stop(proc)
+    p = start_agent("version", test_mode=False, run=subprocess.run, capture_output=True, text=True, timeout=30)
+    check("`version` prints the build's version", p.returncode == 0 and p.stdout.strip() == TEST_VERSION)
+
     # `install` (what a double-click does), in a scratch folder: a test build never touches the login service.
     data_dir = os.path.join(_TMP, "install-data")
     p = start_agent("install", "--site", "https://admin.example.com", "--no-browser", data_dir=data_dir,
@@ -687,6 +719,8 @@ def main():
         # 1. /ping
         status, data = get_json(f"{AGENT_URL}/ping")
         check("=== /ping ===\nagent responds to /ping", data.get("ok") is True)
+        if IMPL != "python":
+            check("/ping reports the build's version", data.get("version") == TEST_VERSION)
 
         # 2. /discover against the UDP stub — addressed directly (not broadcast; loopback
         #    broadcast isn't reliable across platforms), which is exactly what the override

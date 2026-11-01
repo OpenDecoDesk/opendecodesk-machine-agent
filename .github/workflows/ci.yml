@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release: v<date>.<build>, from main"
+        type: boolean
+        default: false
+
+# Releases run one at a time, so two can't take the same build number; other runs aren't held up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.release && 'release' || github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -45,7 +55,34 @@ jobs:
         env:
           ODD_AGENT_IMPL: python
 
+  # The version to build: `dev`, or for a release (Run workflow with "Publish a release" ticked)
+  # today's date and the day's build number, YYYY.MM.DD.NN, from the tags already made.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # every tag, to count the day's releases
+      - name: Test the version script
+        run: scripts/test-next-version.sh
+      - id: version
+        name: The version
+        run: |
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.release }}" != true ]; then
+            v=dev
+          elif [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Releases are made from main only. Run the workflow on main."
+            exit 1
+          else
+            v=$(scripts/next-version.sh)
+          fi
+          echo "Version: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
   installers:
+    needs: version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -53,6 +90,8 @@ jobs:
         with:
           go-version: stable
       - run: ./build.sh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
       - uses: actions/upload-artifact@v4
         with:
           name: installers
@@ -87,3 +126,26 @@ jobs:
           try { Invoke-RestMethod http://127.0.0.1:8787/ping -TimeoutSec 3; throw "still running" } catch { if ($_.Exception.Message -eq "still running") { throw } }
           if (Test-Path "$env:LOCALAPPDATA\OpenDecoDesk Machine Agent") { throw "folder still there" }
           $global:LASTEXITCODE = 0
+
+  # Publishes the installers as the release v<version>, when run by hand on main with "Publish a
+  # release" ticked, once every test has passed. The only job that may write.
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.release && github.ref == 'refs/heads/main'
+    needs: [version, test, python-reference, installers, windows-install]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to create the release (and its tag)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers
+          path: dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ls -l dist
+          gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" \
+            --title "OpenDecoDesk Machine Agent $VERSION" --notes-file RELEASE_NOTES.md
